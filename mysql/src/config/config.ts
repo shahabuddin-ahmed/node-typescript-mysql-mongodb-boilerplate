@@ -23,11 +23,16 @@ interface SequelizeOptions {
 	log: any;
 }
 
+interface SocketConfig {
+    SOCKET_CORS: string[];
+}
+
 interface Config {
 	SEQUELIZE: SequelizeConfig;
 	SEQUELIZEOPTIONS: SequelizeOptions;
 	APPLICATION_SERVER_PORT: number;
 	APP_FORCE_SHUTDOWN_SECOND: number;
+    SOCKET: SocketConfig;
 }
 
 const config: Config = {
@@ -53,7 +58,12 @@ const config: Config = {
 		log: console.log
 	},
 	APPLICATION_SERVER_PORT: Number(process.env.APPLICATION_SERVER_PORT) || 3000,
-	APP_FORCE_SHUTDOWN_SECOND: Number(process.env.APP_FORCE_SHUTDOWN_SECOND) || 30
+	APP_FORCE_SHUTDOWN_SECOND: Number(process.env.APP_FORCE_SHUTDOWN_SECOND) || 30,
+    SOCKET: {
+        SOCKET_CORS: process.env.SOCKET_CORS
+            ? process.env.SOCKET_CORS.split(",")
+            : ["http://localhost:3001"],
+    }
 };
 
 export default config;
