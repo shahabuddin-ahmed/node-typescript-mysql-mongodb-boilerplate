@@ -1,4 +1,4 @@
-# Bizscout Backend API
+# MySQL Backend API
 
 ## Description
 
@@ -6,12 +6,12 @@
 
 1. Clone from git
 ```bash
-git clone https://github.com/shahabuddin-ahmed/...
+git clone https://github.com/shahabuddin-ahmed/node-typescript-mysql-mongodb-boilerplate.git
 ```
 
 2. Navigate into the project directory
 ```bash
-cd mongo-backend
+cd node-typescript-mysql-mongodb-boilerplate/mysql
 ```
 
 3. Install all dependencies
