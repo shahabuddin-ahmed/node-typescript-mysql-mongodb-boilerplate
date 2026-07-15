@@ -16,16 +16,17 @@ export class PostRepo implements PostRepoInterface {
     }
 
     public async findById(id: number): Promise<PostInterface | null> {
-        return Post.findByPk(id, { raw: true });
+        const post = await Post.findByPk(id);
+        return post ? (post.get({ plain: true }) as PostInterface) : null;
     }
 
     public async list(offset: number, limit: number): Promise<PostInterface[]> {
-        return Post.findAll({
+        const posts = await Post.findAll({
             offset,
             limit,
             order: [["createdAt", "DESC"]],
-            raw: true,
         });
+        return posts.map((post) => post.get({ plain: true }) as PostInterface);
     }
 
     public async update(
@@ -39,7 +40,6 @@ export class PostRepo implements PostRepoInterface {
 
         const payload = { ...update };
         delete (payload as any).id;
-
         const updated = await post.update(payload);
         return updated.get({ plain: true }) as PostInterface;
     }
@@ -54,6 +54,9 @@ export class PostRepo implements PostRepoInterface {
     }
 }
 
-export const newPostRepo = async (): Promise<PostRepoInterface> => {
+export const newPostRepo = async (
+): Promise<PostRepoInterface> => {
     return new PostRepo();
 };
+
+export default PostRepo;

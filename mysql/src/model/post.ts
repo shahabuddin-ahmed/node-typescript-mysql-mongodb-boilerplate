@@ -1,4 +1,4 @@
-import { Model, DataTypes, Optional } from "sequelize";
+import { Model, DataTypes } from "sequelize";
 import newSequelize from "../infra/sequelize";
 
 export interface PostInterface {
@@ -12,15 +12,7 @@ export interface PostInterface {
     updatedAt?: Date;
 }
 
-type PostCreationAttributes = Optional<
-    PostInterface,
-    "id" | "author" | "tags" | "published" | "createdAt" | "updatedAt"
->;
-
-class Post
-    extends Model<PostInterface, PostCreationAttributes>
-    implements PostInterface
-{
+class Post extends Model<PostInterface> implements PostInterface {
     public id?: number;
     public title!: string;
     public content!: string;
@@ -35,19 +27,19 @@ Post.init(
     {
         id: {
             type: DataTypes.INTEGER.UNSIGNED,
-            primaryKey: true,
             autoIncrement: true,
+            primaryKey: true,
         },
         title: {
-            type: DataTypes.STRING(255),
+            type: new DataTypes.STRING(150),
             allowNull: false,
         },
         content: {
-            type: DataTypes.TEXT,
+            type: new DataTypes.TEXT,
             allowNull: false,
         },
         author: {
-            type: DataTypes.STRING(100),
+            type: new DataTypes.STRING(100),
             allowNull: false,
             defaultValue: "anonymous",
         },
@@ -61,16 +53,6 @@ Post.init(
             allowNull: false,
             defaultValue: false,
         },
-        createdAt: {
-            type: DataTypes.DATE,
-            allowNull: false,
-            defaultValue: DataTypes.NOW,
-        },
-        updatedAt: {
-            type: DataTypes.DATE,
-            allowNull: false,
-            defaultValue: DataTypes.NOW,
-        },
     },
     {
         tableName: "posts",
@@ -78,7 +60,7 @@ Post.init(
         timestamps: true,
         underscored: false,
         sequelize: newSequelize(),
-        modelName: "post",
+        modelName: "posts",
     }
 );
 
