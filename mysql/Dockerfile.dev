@@ -1,0 +1,13 @@
+FROM node:22-alpine
+
+# Set working directory
+WORKDIR /server
+
+# Install dependencies
+RUN yarn install
+
+# Copy the source code
+COPY . .
+
+# Start app with nodemon
+CMD ["yarn", "dev"]
