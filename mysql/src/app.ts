@@ -8,6 +8,7 @@ import { newPostV1Controller } from "./web/controller/v1/post";
 import { globalErrorHandler } from "./web/middleware/global-error-handler";
 import { initializeDBConnection } from "./infra/db";
 import { newRedisClient } from "./infra/redis";
+import { newSearchV1Controller } from "./web/controller/v1/search";
 
 const app = express();
 
@@ -26,10 +27,12 @@ export const appReady = (async () => {
 
     // Initialize Controller
     const postV1Controller = await newPostV1Controller(postService);
+    const searchV1Controller = await newSearchV1Controller();
 
     // Initialize Router
     const v1Router = await newV1Router({
         postController: postV1Controller,
+        searchController: searchV1Controller,
     });
 
     app.use(morgan("short"));

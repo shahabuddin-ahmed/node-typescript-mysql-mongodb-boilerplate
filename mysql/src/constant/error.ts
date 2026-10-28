@@ -4,6 +4,8 @@ export enum ERROR_CODES {
     E_PAGE_NOT_FOUND = "E_PAGE_NOT_FOUND",
     E_INVALID_DATA = "E_INVALID_DATA",
     E_INTERNAL_SERVER_ERROR = "E_INTERNAL_SERVER_ERROR",
+    E_TOO_MANY_REQUEST = "E_TOO_MANY_REQUEST",
+
 }
 
 export const errorMessages: Record<ERROR_CODES, { message: string }> = {
@@ -17,9 +19,11 @@ export const errorMessages: Record<ERROR_CODES, { message: string }> = {
     E_INVALID_DATA: {
         message: "Please provide valid data",
     },
-
     E_INTERNAL_SERVER_ERROR: {
         message: "Internal Server Error",
+    },
+    E_TOO_MANY_REQUEST: {
+        message: "You are exceeded the rate limit. Please try after a moment.",
     },
 };
 
