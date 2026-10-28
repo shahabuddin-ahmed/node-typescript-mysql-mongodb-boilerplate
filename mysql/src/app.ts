@@ -7,14 +7,16 @@ import { newPostService } from "./service/post";
 import { newPostV1Controller } from "./web/controller/v1/post";
 import { globalErrorHandler } from "./web/middleware/global-error-handler";
 import { initializeDBConnection } from "./infra/db";
+import { newRedisClient } from "./infra/redis";
 
 const app = express();
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-(async () => {
+export const appReady = (async () => {
     await initializeDBConnection();
+    await newRedisClient();
 
     // Initialize Repo
     const postRepo = await newPostRepo();

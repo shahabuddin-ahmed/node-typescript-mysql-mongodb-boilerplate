@@ -14,7 +14,7 @@ export const initializeDBConnection = async (): Promise<Sequelize> => {
         } else {
             console.log(err);
         }
-        process.exit(1);
+        throw err;
     }
 
     return sequelize;

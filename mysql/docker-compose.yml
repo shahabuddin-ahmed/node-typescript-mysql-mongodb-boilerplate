@@ -1,43 +1,86 @@
-version: "3"
 services:
     web:
-        container_name: mysqlBoilerplateService
         build:
-            dockerfile: Dockerfile.dev
             context: .
+            dockerfile: Dockerfile
+        init: true
+        restart: unless-stopped
         depends_on:
-            - db
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
         ports:
-            - "3000:3000"
-        volumes:
-            - .:/server
+            - "${APPLICATION_SERVER_PORT:-3000}:3000"
         environment:
-            - MONGO_HOST=mongodb://db:27017
-            - MONGO_DB=sample-app
-            - SOCKET_CORS=http://localhost:3001
-            - APPLICATION_SERVER_PORT=3001
-            - APP_FORCE_SHUTDOWN_SECOND=30
+            NODE_ENV: production
+            APPLICATION_SERVER_PORT: "3000"
+            APP_FORCE_SHUTDOWN_SECOND: "30"
+            ADMIN_API_KEY: "${ADMIN_API_KEY:-local-development-key}"
+            MYSQL_HOST: db
+            MYSQL_PORT: "3306"
+            MYSQL_DATABASE: "${MYSQL_DATABASE:-sample_app}"
+            MYSQL_USER: "${MYSQL_USER:-app}"
+            MYSQL_PASSWORD: "${MYSQL_PASSWORD:-local-app-password}"
+            REDIS_HOST: redis
+            REDIS_PORT: "6379"
+        stop_grace_period: 40s
+        healthcheck:
+            test:
+                - CMD
+                - node
+                - -e
+                - "require('http').get('http://127.0.0.1:3000/api/v1/health', r => { r.resume(); process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"
+            interval: 10s
+            timeout: 3s
+            retries: 5
+            start_period: 20s
 
-    # Database
     db:
         image: mysql:8.0
-        ports:
-        - "3306:3306"
-        restart: always
+        restart: unless-stopped
         environment:
-            MYSQL_ROOT_PASSWORD: admin
-            MYSQL_DATABASE: testdb
-            MYSQL_USER: root
-            MYSQL_PASSWORD: root
+            MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-local-root-password}"
+            MYSQL_DATABASE: "${MYSQL_DATABASE:-sample_app}"
+            MYSQL_USER: "${MYSQL_USER:-app}"
+            MYSQL_PASSWORD: "${MYSQL_PASSWORD:-local-app-password}"
+        volumes:
+            - mysql_data:/var/lib/mysql
+        healthcheck:
+            # Authenticate as the app user over TCP after initialization finishes.
+            test:
+                - CMD-SHELL
+                - 'MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=TCP -h 127.0.0.1 -u "$${MYSQL_USER}" "$${MYSQL_DATABASE}" -e "SELECT 1"'
+            interval: 5s
+            timeout: 5s
+            retries: 20
+            start_period: 30s
 
-    # phpmyadmin
+    redis:
+        image: redis:7.0
+        restart: unless-stopped
+        command: ["redis-server", "--appendonly", "yes"]
+        volumes:
+            - redis_data:/data
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 3s
+            retries: 5
+
     phpmyadmin:
-        depends_on:
-        - db
         image: phpmyadmin/phpmyadmin
-        restart: always
+        profiles: ["tools"]
+        restart: unless-stopped
+        depends_on:
+            db:
+                condition: service_healthy
         ports:
-        - "8080:80"
+            - "127.0.0.1:${PHPMYADMIN_PORT:-8080}:80"
         environment:
             PMA_HOST: db
-            MYSQL_ROOT_PASSWORD: root
+            PMA_PORT: "3306"
+
+volumes:
+    mysql_data:
+    redis_data:

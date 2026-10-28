@@ -8,6 +8,7 @@ interface SequelizeConfig {
 
 interface SequelizeOptions {
 	host: string;
+	port: number;
 	dialect: Dialect;
 	pool: {
 		max: number;
@@ -24,6 +25,9 @@ interface SequelizeOptions {
 }
 
 interface Config {
+	ADMIN_API_KEY: string;
+	REDIS_HOST: string;
+	REDIS_PORT: number;
 	SEQUELIZE: SequelizeConfig;
 	SEQUELIZEOPTIONS: SequelizeOptions;
 	APPLICATION_SERVER_PORT: number;
@@ -31,13 +35,17 @@ interface Config {
 }
 
 const config: Config = {
+	REDIS_HOST: process.env.REDIS_HOST || "0.0.0.0",
+	REDIS_PORT: Number(process.env.REDIS_PORT) || 6379,
+	ADMIN_API_KEY: process.env.ADMIN_API_KEY || "abcd1234",
 	SEQUELIZE: {
-		USERNAME: process.env.MYSQL_USER || "root",
-		PASSWORD: process.env.MYSQL_PASSWORD || "root",
-		MYSQL_DATABASE: process.env.MYSQL_DATABASE || "test1"
+		USERNAME: process.env.MYSQL_USER || "nirapod",
+		PASSWORD: process.env.MYSQL_PASSWORD || "nirapod",
+		MYSQL_DATABASE: process.env.MYSQL_DATABASE || "odin"
 	},
 	SEQUELIZEOPTIONS: {
 		host: process.env.MYSQL_HOST || "0.0.0.0",
+		port: Number(process.env.MYSQL_PORT) || 3307,
 		dialect: "mysql",
 		pool: {
 			max: 20,

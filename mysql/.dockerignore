@@ -10,3 +10,9 @@ LICENSE
 .vscode
 data/*
 storage/*
+# Keep local secrets, build output, and test artifacts out of the image.
+.env
+.env.*
+dist
+coverage
+.DS_Store
