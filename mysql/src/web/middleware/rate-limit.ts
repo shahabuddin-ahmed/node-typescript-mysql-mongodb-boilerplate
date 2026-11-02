@@ -1,5 +1,4 @@
 import { NextFunction, Request, Response } from "express";
-import config from "../../config/config";
 import { ERROR_CODES } from "../../constant/error";
 import { getIpAddress } from "../../utils/utility";
 import { createHash } from "crypto";

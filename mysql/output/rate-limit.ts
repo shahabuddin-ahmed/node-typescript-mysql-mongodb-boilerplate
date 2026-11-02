@@ -1,5 +1,4 @@
 import { NextFunction, Request, Response } from "express";
-import config from "../../config/config";
 import { ERROR_CODES } from "../../constant/error";
 import { getIpAddress } from "../../utils/utility";
 import { createHash } from "crypto";
@@ -27,29 +26,19 @@ interface VerifyRateLimit {
 
 const defaultRateLimit: Record<string, RateLimit> = {
     "GET:/api/v1/search/flight": {
-        sort: { limit: 2, throttlingInSec: 30 },
-        daily: { limit: 10, throttlingInSec: 86400 },
-        weekly: { limit: 100, throttlingInSec: 604800 },
+        sort: { limit: 2, throttlingInSec: 5 },
+        daily: { limit: 200, throttlingInSec: 86400 },
+        weekly: { limit: 1000, throttlingInSec: 604800 },
     },
     "GET:/api/v1/search/hotel": {
-        sort: { limit: 2, throttlingInSec: 30 },
-        daily: { limit: 10, throttlingInSec: 86400 },
-        weekly: { limit: 100, throttlingInSec: 604800 },
-    },
-    "POST:/api/v1/posts": {
-        sort: { limit: 2, throttlingInSec: 30 },
-        daily: { limit: 10, throttlingInSec: 86400 },
-        weekly: { limit: 100, throttlingInSec: 604800 },
-    },
-    "GET:/api/v1/posts": {
-        sort: { limit: 2, throttlingInSec: 30 },
-        daily: { limit: 10, throttlingInSec: 86400 },
-        weekly: { limit: 100, throttlingInSec: 604800 },
+        sort: { limit: 2, throttlingInSec: 5 },
+        daily: { limit: 200, throttlingInSec: 86400 },
+        weekly: { limit: 1000, throttlingInSec: 604800 },
     },
     default: {
-        sort: { limit: 3, throttlingInSec: 30 },
-        daily: { limit: 20, throttlingInSec: 86400 },
-        weekly: { limit: 200, throttlingInSec: 604800 },
+        sort: { limit: 2, throttlingInSec: 5 },
+        daily: { limit: 200, throttlingInSec: 86400 },
+        weekly: { limit: 1000, throttlingInSec: 604800 },
     }
 }
 

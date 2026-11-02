@@ -1,37 +1,19 @@
-import { Request, Response } from "express";
-import { Controller } from "../controller";
+import { Router } from "express";
+import { asyncHandler } from "../../middleware/async-hander";
+import { SearchControllerInterface } from "../../controller/v1/search";
+import { newRateLimit } from "../../middleware/rate-limit";
 
-export interface SearchControllerInterface {
-    flightSearch(req: Request, res: Response): any;
-    hotelSearch(req: Request, res: Response): any;
-}
+export const newSearchRouter = async (
+    searchController: SearchControllerInterface
+): Promise<Router> => {
+    const router = Router();
 
-export class SearchController extends Controller implements SearchControllerInterface {
-    constructor() {
-        super();
-        this.flightSearch = this.flightSearch.bind(this);
-        this.hotelSearch = this.hotelSearch.bind(this);
-    }
+    const rateLimit = newRateLimit();
 
-    async flightSearch(req: Request, res: Response): Promise<any> {
-        const data = {
-            searchId: "345325325235",
-            origin: "DAC",
-            destination: "JFK"
-        };
-        return this.sendResponse({ response: data }, 201, res);
-    }
+    router.get("/flight", rateLimit, asyncHandler(searchController.flightSearch));
+    router.get("/hotel", rateLimit, asyncHandler(searchController.hotelSearch));
 
-    async hotelSearch(req: Request, res: Response): Promise<any> {
-        const data = {
-            searchId: "345325325235",
-            checkIn: "2026-12-25",
-            checkOut: "2026-12-28"
-        };
-        return this.sendResponse({ response: data }, 201, res);
-    }
-}
-
-export const newSearchV1Controller = async (): Promise<SearchController> => {
-    return new SearchController();
+    return router;
 };
+
+export default newSearchRouter;
