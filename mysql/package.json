@@ -1,7 +1,7 @@
 {
-    "name": "express-mongo-boilerplate",
+    "name": "express-mysql-boilerplate",
     "version": "1.0.0",
-    "description": "Sample Express + Mongo CRUD boilerplate",
+    "description": "Sample Express + MySQL CRUD boilerplate",
     "main": "app.ts",
     "scripts": {
         "dev": "nodemon",
