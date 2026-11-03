@@ -26,29 +26,17 @@ interface VerifyRateLimit {
 
 const defaultRateLimit: Record<string, RateLimit> = {
     "GET:/api/v1/search/flight": {
-        sort: { limit: 2, throttlingInSec: 30 },
-        daily: { limit: 10, throttlingInSec: 86400 },
-        weekly: { limit: 100, throttlingInSec: 604800 },
+        sort: { limit: 2, throttlingInSec: 5 },
+        daily: { limit: 100, throttlingInSec: 86400 },
+        weekly: { limit: 1000, throttlingInSec: 604800 },
     },
     "GET:/api/v1/search/hotel": {
-        sort: { limit: 2, throttlingInSec: 30 },
-        daily: { limit: 10, throttlingInSec: 86400 },
-        weekly: { limit: 100, throttlingInSec: 604800 },
-    },
-    "POST:/api/v1/posts": {
-        sort: { limit: 2, throttlingInSec: 30 },
-        daily: { limit: 10, throttlingInSec: 86400 },
-        weekly: { limit: 100, throttlingInSec: 604800 },
-    },
-    "GET:/api/v1/posts": {
-        sort: { limit: 2, throttlingInSec: 30 },
-        daily: { limit: 10, throttlingInSec: 86400 },
-        weekly: { limit: 100, throttlingInSec: 604800 },
+        sort: { limit: 2, throttlingInSec: 5 },
+        daily: { limit: 100, throttlingInSec: 86400 },
+        weekly: { limit: 1000, throttlingInSec: 604800 },
     },
     default: {
-        sort: { limit: 3, throttlingInSec: 30 },
-        daily: { limit: 20, throttlingInSec: 86400 },
-        weekly: { limit: 200, throttlingInSec: 604800 },
+        sort: { limit: 120, throttlingInSec: 60 },
     }
 }
 
@@ -75,15 +63,13 @@ async function verifyRatelimit(rateLimit: RateLimit, redisClient: RedisClientTyp
 
         const { limit, throttlingInSec } = rateLimit[rateLimitName as keyof RateLimit] || { limit: 0, throttlingInSec: 0 } as RateLimitConfig;
 
-        await redisClient.set(key, "0", {
-            NX: true,
-            EX: throttlingInSec
-        });
+        const [usedCount, , resetInSec] = (await redisClient
+            .multi()
+            .incr(key)
+            .expire(key, throttlingInSec, "NX")
+            .ttl(key)
+            .exec()) as [number, boolean, number];;
 
-        const usedCount = await redisClient.incr(key);
-        const ttl = await redisClient.ttl(key);
-
-        const resetInSec = ttl ? ttl : throttlingInSec;
         const remainingLimit = Math.max(limit - usedCount, 0);
 
         const data = {
@@ -98,7 +84,7 @@ async function verifyRatelimit(rateLimit: RateLimit, redisClient: RedisClientTyp
             remainingRateLimits.push(data);
         }
 
-        return 
+        return;
 
     }));
 

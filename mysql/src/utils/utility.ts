@@ -11,17 +11,12 @@ export interface IpAddressInfo {
 }
 
 export const getIpAddress = (req: Request): IpAddressInfo => {
-    const reqHeaders = req.headers;
-    let clientIp: string = "";
-    let serverIps: string[] = [];
+    const clientIp = req.ip || req.socket.remoteAddress;
+    const serverIps = req.ips;
 
-    if (reqHeaders["x-original-forwarded-for"]) {
-        serverIps = (reqHeaders["x-original-forwarded-for"] as string).split(",").map(ip => ip.trim());
-        clientIp = serverIps[0];
-    } else if (reqHeaders["x-forwarded-for"]) {
-        serverIps = (reqHeaders["x-forwarded-for"] as string).split(",").map(ip => ip.trim());
-        clientIp = serverIps[0];
+    if (!clientIp) {
+        throw new Error("Unable to determine client IP address");
     }
 
     return { clientIp, serverIps };
-}
+};
