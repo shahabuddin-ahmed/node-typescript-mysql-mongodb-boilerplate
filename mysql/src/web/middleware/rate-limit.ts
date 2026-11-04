@@ -27,12 +27,12 @@ interface VerifyRateLimit {
 const defaultRateLimit: Record<string, RateLimit> = {
     "GET:/api/v1/search/flight": {
         sort: { limit: 2, throttlingInSec: 5 },
-        daily: { limit: 100, throttlingInSec: 86400 },
+        daily: { limit: 200, throttlingInSec: 86400 },
         weekly: { limit: 1000, throttlingInSec: 604800 },
     },
     "GET:/api/v1/search/hotel": {
         sort: { limit: 2, throttlingInSec: 5 },
-        daily: { limit: 100, throttlingInSec: 86400 },
+        daily: { limit: 200, throttlingInSec: 86400 },
         weekly: { limit: 1000, throttlingInSec: 604800 },
     },
     default: {
