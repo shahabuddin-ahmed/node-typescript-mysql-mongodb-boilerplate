@@ -57,6 +57,7 @@ AccessConfiguration.init(
         targetValue: {
             type: new DataTypes.STRING(50),
             allowNull: true,
+            defaultValue: null,
         },
         targetType: {
             type: new DataTypes.ENUM(
@@ -86,6 +87,11 @@ AccessConfiguration.init(
         underscored: false,
         sequelize: newSequelize(),
         modelName: "AccessConfiguration",
+        indexes: [{
+            name: "access_configurations_target_unique",
+            unique: true,
+            fields: ["targetType", "targetValue"],
+        }],
     },
 );
 

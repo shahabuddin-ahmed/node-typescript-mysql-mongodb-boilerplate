@@ -10,6 +10,6 @@ export class UnauthorizedException extends Error {
         this.code = code;
         this.customMessage = customMessage;
         this.errors = errors;
-        this.statusCode = 404;
+        this.statusCode = 401;
     }
 }

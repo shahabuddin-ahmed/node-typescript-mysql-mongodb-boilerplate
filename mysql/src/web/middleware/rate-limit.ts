@@ -5,11 +5,12 @@ import { getIpAddress } from "../../utils/utility";
 import { createHash } from "crypto";
 import { newRedisClient } from "../../infra/redis";
 import { TooManyRequestException } from "../exception/too-many-request-exception";
+import config from "../../config/config";
 import AccessConfiguration, {
-    RateLimitWindowConfig,
     RateLimitPolicyConfig,
     AccessConfigurationRateLimitMap,
     AccessConfigurationTargetType,
+    RateLimitWindowConfig,
 } from "../../model/access-configuration";
 
 type RedisClientType = Awaited<ReturnType<typeof newRedisClient>>;
@@ -37,9 +38,10 @@ const defaultRateLimit: AccessConfigurationRateLimitMap = {
 };
 
 const accessConfigurationCache = new NodeCache({
-    stdTTL: 1800,
-    checkperiod: 90,
-}); // Cache access configurations for 30 minutes
+    stdTTL: config.ACCESS_CONFIGURATION_CACHE_TTL_SEC,
+    checkperiod: 0,
+    useClones: false,
+});
 
 const ACCESS_CONFIGURATION_CACHE_KEY = "all_access_configurations";
 
@@ -55,7 +57,13 @@ function getEndpoint(req: Request): string {
     const path =
         `${req.baseUrl}${routePath}`.toLowerCase().replace(/\/+$/, "") || "/";
 
-    return `${req.method.toUpperCase()}:${path}`;
+    const method =
+        req.method === "HEAD" &&
+        req.route?.methods?.get &&
+        !req.route.methods.head
+            ? "GET"
+            : req.method.toUpperCase();
+    return `${method}:${path}`;
 }
 
 function getRateLimitKey(
@@ -66,10 +74,11 @@ function getRateLimitKey(
     return userId ? `user:${userId}` : `ip:${ipAddress}:${userAgentHash}`;
 }
 
-async function getAccessConfiguration(
+async function getConfiguredRateLimit(
     userId: string | null,
     ipAddress: string,
-): Promise<AccessConfiguration | null> {
+    endpoint: string,
+): Promise<RateLimitPolicyConfig | null> {
     const targetValues = [
         userId
             ? {
@@ -110,24 +119,33 @@ async function getAccessConfiguration(
         );
 
         if (accessConfiguration) {
-            return accessConfiguration;
+            const rateLimit =
+                accessConfiguration.rateLimits.find((map) => map[endpoint])?.[
+                    endpoint
+                ] ||
+                accessConfiguration.rateLimits.find((map) => map.default)
+                    ?.default;
+
+            if (rateLimit) {
+                return rateLimit;
+            }
         }
     }
 
     return null;
 }
 
-async function verifyRatelimit(
+async function verifyRateLimit(
     rateLimit: RateLimitPolicyConfig,
     redisClient: RedisClientType,
     endpoint: string,
     rateLimitKey: string,
 ): Promise<{
-    exceededRateLimits: VerifyRateLimit[];
-    remainingRateLimits: VerifyRateLimit[];
+    rateLimitExceeded: boolean;
+    rateLimitWindow: VerifyRateLimit;
 }> {
-    const exceededRateLimits: VerifyRateLimit[] = [];
-    const remainingRateLimits: VerifyRateLimit[] = [];
+    let exceededWindow: VerifyRateLimit | null = null;
+    let remainingWindow: VerifyRateLimit | null = null;
 
     await Promise.all(
         Object.keys(rateLimit).map(async (rateLimitName: string) => {
@@ -153,37 +171,39 @@ async function verifyRatelimit(
             };
 
             if (usedCount > limit) {
-                exceededRateLimits.push(data);
+                exceededWindow =
+                    !exceededWindow || resetInSec > exceededWindow.resetInSec
+                        ? data
+                        : exceededWindow;
             } else {
-                remainingRateLimits.push(data);
+                remainingWindow =
+                    !remainingWindow || remainingLimit < remainingWindow.remainingLimit
+                        ? data
+                        : remainingWindow;
             }
 
-            return;
         }),
     );
 
-    return { exceededRateLimits, remainingRateLimits };
+    const rateLimitWindow = exceededWindow ?? remainingWindow;
+    if (!rateLimitWindow) {
+        throw new Error("No rate limit windows configured");
+    }
+
+    return { rateLimitExceeded: !!exceededWindow, rateLimitWindow };
 }
 
 function setRateLimitHeaders(
     res: Response,
-    exceededRateLimit: VerifyRateLimit | null,
-    remainingRateLimit: VerifyRateLimit,
+    rateLimitWindow: VerifyRateLimit,
+    rateLimitExceeded: boolean,
 ): void {
-    if (exceededRateLimit) {
-        res.set(
-            "Rate-Limit-Remaining",
-            remainingRateLimit.remainingLimit.toString(),
-        );
-        res.set("Rate-Limit-Reset", exceededRateLimit.resetInSec.toString());
-        res.set("Rate-Limit-Window", exceededRateLimit.windowName);
-    } else {
-        res.set(
-            "Rate-Limit-Remaining",
-            remainingRateLimit.remainingLimit.toString(),
-        );
-        res.set("Rate-Limit-Reset", remainingRateLimit.resetInSec.toString());
-        res.set("Rate-Limit-Window", remainingRateLimit.windowName);
+    res.set("Rate-Limit-Remaining", rateLimitWindow.remainingLimit.toString());
+    res.set("Rate-Limit-Reset", rateLimitWindow.resetInSec.toString());
+    res.set("Rate-Limit-Window", rateLimitWindow.windowName);
+    
+    if (rateLimitExceeded) {
+        res.set("Retry-After", Math.max(1, rateLimitWindow.resetInSec).toString());
     }
 }
 
@@ -203,33 +223,26 @@ export const newRateLimit =
 
             const redisClient = await newRedisClient();
 
-            const accessConfiguration = await getAccessConfiguration(
+            const configuredRateLimit = await getConfiguredRateLimit(
                 userId,
                 ipAddress,
+                endpoint,
             );
 
             const rateLimit =
-                accessConfiguration?.rateLimits.find(
-                    (rateLimit) => rateLimit[endpoint],
-                )?.[endpoint] ||
+                configuredRateLimit ||
                 defaultRateLimit[endpoint] ||
                 defaultRateLimit.default;
 
-            const { exceededRateLimits, remainingRateLimits } =
-                await verifyRatelimit(
-                    rateLimit,
-                    redisClient,
-                    endpoint,
-                    rateLimitKey,
-                );
-
-            setRateLimitHeaders(
-                res,
-                exceededRateLimits[0],
-                remainingRateLimits[0],
+            const { rateLimitExceeded, rateLimitWindow } = await verifyRateLimit(
+                rateLimit,
+                redisClient,
+                endpoint,
+                rateLimitKey,
             );
+            setRateLimitHeaders(res, rateLimitWindow, rateLimitExceeded);
 
-            if (exceededRateLimits.length) {
+            if (rateLimitExceeded) {
                 throw new TooManyRequestException(
                     ERROR_CODES.E_TOO_MANY_REQUEST,
                 );

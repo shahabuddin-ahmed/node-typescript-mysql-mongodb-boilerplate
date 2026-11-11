@@ -32,9 +32,11 @@ interface Config {
 	SEQUELIZEOPTIONS: SequelizeOptions;
 	APPLICATION_SERVER_PORT: number;
 	APP_FORCE_SHUTDOWN_SECOND: number;
+	ACCESS_CONFIGURATION_CACHE_TTL_SEC: number;
 }
 
 const config: Config = {
+	ACCESS_CONFIGURATION_CACHE_TTL_SEC: Number(process.env.ACCESS_CONFIGURATION_CACHE_TTL_SEC) || 300,
 	REDIS_HOST: process.env.REDIS_HOST || "0.0.0.0",
 	REDIS_PORT: Number(process.env.REDIS_PORT) || 6379,
 	ADMIN_API_KEY: process.env.ADMIN_API_KEY || "abcd1234",

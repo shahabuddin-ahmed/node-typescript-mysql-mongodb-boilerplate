@@ -5,13 +5,22 @@ type RedisClient = ReturnType<typeof createClient>;
 
 let client: RedisClient | undefined;
 let connection: Promise<RedisClient> | undefined;
+let closing: Promise<void> | undefined;
 
 export const newRedisClient = (): Promise<RedisClient> => {
+    if (closing) {
+        return closing.then(() => newRedisClient());
+    }
     if (connection) {
         return connection;
     }
+    if (client?.isOpen) {
+        return Promise.resolve(client);
+    }
 
     const newClient = createClient({
+        // Fail closed during reconnection instead of accumulating an offline request queue.
+        disableOfflineQueue: true,
         socket: {
             host: config.REDIS_HOST,
             port: config.REDIS_PORT,
@@ -24,35 +33,39 @@ export const newRedisClient = (): Promise<RedisClient> => {
     client = newClient;
     newClient.on("error", (err: Error) => console.error("Redis client error:", err.message));
 
-    connection = newClient.connect().then(() => {
+    const attempt = newClient.connect().then(() => {
         console.log("Redis connected successfully");
         return newClient;
     }).catch(async (err: unknown) => {
-        if (newClient.isOpen) {
-            await newClient.disconnect();
+        try {
+            if (newClient.isOpen) await newClient.disconnect();
+        } finally {
+            if (client === newClient) client = undefined;
         }
-        client = undefined;
-        connection = undefined;
         throw err;
+    }).finally(() => {
+        // Only cache an in-flight attempt. A later terminal disconnect needs a new client.
+        if (connection === attempt) connection = undefined;
     });
-
-    return connection;
+    connection = attempt;
+    return attempt;
 };
 
-export const closeRedisClient = async (): Promise<void> => {
-    if (connection) {
-        await connection.catch(() => undefined);
-    }
-
+export const closeRedisClient = (): Promise<void> => {
+    if (closing) return closing;
+    const pending = connection;
     const currentClient = client;
     client = undefined;
     connection = undefined;
-
-    if (currentClient?.isOpen) {
-        if (currentClient.isReady) {
-            await currentClient.quit();
-        } else {
-            await currentClient.disconnect();
+    closing = (async () => {
+        await pending?.catch(() => undefined);
+        if (currentClient?.isOpen) {
+            if (currentClient.isReady) {
+                await currentClient.quit();
+            } else {
+                await currentClient.disconnect();
+            }
         }
-    }
+    })().finally(() => { closing = undefined; });
+    return closing;
 };
