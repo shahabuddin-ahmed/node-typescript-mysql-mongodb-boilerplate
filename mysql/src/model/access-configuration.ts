@@ -27,6 +27,7 @@ export interface AccessConfigurationInterface {
     targetValue?: string | null;
     targetType: AccessConfigurationTargetType;
     rateLimits: AccessConfigurationRateLimitMap[];
+    isActive?: boolean;
     createdBy: number;
     updatedBy?: number | null;
     createdAt?: Date;
@@ -41,6 +42,7 @@ class AccessConfiguration
     public targetValue?: string | null;
     public targetType!: AccessConfigurationTargetType;
     public rateLimits!: AccessConfigurationRateLimitMap[];
+    public isActive!: boolean;
     public createdBy!: number;
     public updatedBy?: number | null;
     public readonly createdAt?: Date;
@@ -70,6 +72,11 @@ AccessConfiguration.init(
             type: DataTypes.JSON,
             allowNull: false,
             defaultValue: [],
+        },
+        isActive: {
+            type: DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: true,
         },
         createdBy: {
             type: DataTypes.INTEGER,

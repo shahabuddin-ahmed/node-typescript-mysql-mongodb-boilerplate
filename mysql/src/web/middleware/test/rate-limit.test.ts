@@ -11,6 +11,7 @@ jest.mock("../../../model/access-configuration", () => ({
         DEFAULT: "DEFAULT",
     },
 }));
+
 jest.mock("../../../infra/redis", () => ({ newRedisClient: jest.fn() }));
 
 describe("Rate-limit middleware", () => {

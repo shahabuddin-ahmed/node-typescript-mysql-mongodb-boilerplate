@@ -64,154 +64,107 @@ curl --get 'http://localhost:3000/api/v1/search/hotel' \
 - Supply one age (0–17) per child. Include infants in the child count.
 - Children default to 0. With no children, child ages default to an empty array.
 
-Both searches use Joi validation. Use ISO dates such as `2026-12-25`. Valid requests return HTTP 200 with the validated parameters in `response`. Invalid requests, including extra query fields, return HTTP 400 with validation errors.
-
-Validation rules are in [search.ts](src/web/validation/search.ts).
+Use ISO dates such as `2026-12-25`. Valid requests return HTTP 200 with the validated parameters in `response`. Invalid requests, including extra query fields, return HTTP 400 with validation errors.
 
 ## Rate limits
 
-Flight and hotel searches can make many provider calls. Rate limiting keeps repeated searches from overloading the service. The same middleware can be added to other APIs.
+The API limits repeated searches to keep the service available. The frontend should use the response headers to show how long the user needs to wait and prevent repeated submissions during that time.
 
-MySQL stores the settings. Redis stores request counts and expiry times. The middleware checks the limits before calling the route handler. Exceeding any window returns HTTP 429 with code `E_TOO_MANY_REQUEST`.
+### Limits
 
-### Default limits
-
-Flight and hotel search each have these limits:
+Flight and hotel search each use these defaults:
 
 | Window | Requests | Duration |
 | --- | --- | --- |
 | `sort` | 2 | 5 seconds |
-| `daily` | 200 | 86,400 seconds |
-| `weekly` | 1,000 | 604,800 seconds |
+| `daily` | 200 | 24 hours |
+| `weekly` | 1,000 | 7 days |
 
-Other routes using the middleware default to 120 requests per 60 seconds. Each window starts with the first request and expires after its duration. Daily and weekly windows do not reset at midnight.
+All configured windows apply. Exceeding any one of them returns HTTP 429. Daily and weekly windows start with the first request, rather than resetting at midnight.
 
-### Which setting is used?
+Counts are separate for each HTTP method and endpoint. Flight searches do not use the hotel search quota. Requests are counted by account when the API has an authenticated user, otherwise by IP address and User-Agent. The supplied search endpoints are public.
 
-1. If `req.user.id` exists, look for a matching `USER` row. Otherwise, look for a matching `IP` row.
-2. If no policy matches, check the `DEFAULT` row in MySQL.
-3. If no database policy matches, use the route's code default, then the general code default.
+Limits can differ by account or IP and can be changed by the service administrator. Use the response headers for the current limit state instead of hardcoding the default values in the frontend. Other rate-limited endpoints default to 120 requests per minute.
 
-Within a database row, the route entry is checked first, then its `default` entry. The selected policy is used as a whole; windows from different policies are not combined.
+### Response headers
 
-The admin panel is responsible for validating policies before saving them. The gateway reads saved policies directly without validating their contents again.
-
-An empty table, no matching policy or a failed MySQL lookup uses the built-in limits. MySQL lookup errors are logged. After a failed lookup, the fallback is cached for the normal cache duration, then MySQL is checked again. Redis errors still stop the request and use the global error handler.
-
-Counts are separate for each HTTP method and route. Logged-in users are counted by user ID. Other requests are counted by IP address and User-Agent. The search routes are public; a `USER` rule needs authentication middleware to set `req.user.id` first.
-
-### Set limits in MySQL
-
-Use the `access_configurations` table defined in [access-configuration.ts](src/model/access-configuration.ts).
-
-Local sample data is in [seeds/access-configurations.sql](seeds/access-configurations.sql). Run it against your application database:
-
-```bash
-mysql -u YOUR_USER -p YOUR_DATABASE < seeds/access-configurations.sql
-```
-
-It adds a shared default, localhost IP rules (`127.0.0.1` and `::ffff:127.0.0.1`), and a `dummy-admin` user rule. Existing target rows are kept. Localhost allows 2 searches per 10 seconds on each search endpoint, so the third request within that window returns 429. The user rule applies only when authentication sets `req.user.id` to `dummy-admin`.
-
-Restart the API or wait for the 300-second settings cache to expire after adding the samples.
-
-| `targetType` | `targetValue` | Use case |
-| --- | --- | --- |
-| `USER` | User ID, such as `user-123` | Give one user a different limit |
-| `IP` | Client IP address, such as `203.0.113.10` | Set limits for unauthenticated requests from an IP |
-| `DEFAULT` | SQL `NULL` | Set shared defaults |
-
-The `rateLimits` column is a JSON array. Route keys include the uppercase HTTP method and lowercase full path, such as `GET:/api/v1/search/flight`. A `default` key applies to other routes using the middleware for that target.
-
-This example allows one user 10 flight searches per 5 seconds, 500 per day and 2,000 per week. Change the sample values before running it in MySQL:
-
-```sql
-SET @target_type = 'USER';
-SET @target_value = 'user-123';
-SET @editor_id = 1;
-SET @rate_limits = '[
-  {
-    "GET:/api/v1/search/flight": {
-      "sort": { "limit": 10, "throttlingInSec": 5 },
-      "daily": { "limit": 500, "throttlingInSec": 86400 },
-      "weekly": { "limit": 2000, "throttlingInSec": 604800 }
-    }
-  }
-]';
-
-INSERT INTO access_configurations
-  (targetType, targetValue, rateLimits, createdBy, createdAt, updatedAt)
-VALUES
-  (@target_type, @target_value, @rate_limits, @editor_id, NOW(), NOW());
-```
-
-For an IP rule, change `@target_type` to `'IP'` and `@target_value` to the client IP. For shared defaults, use `'DEFAULT'` and SQL `NULL`. Set `@editor_id` to the ID of the person making the change. Keep one row per target, including one shared `DEFAULT` row.
-
-To update an existing row, set the variables above to the new values and run this instead of the insert:
-
-```sql
-UPDATE access_configurations
-SET rateLimits = @rate_limits,
-    updatedBy = @editor_id,
-    updatedAt = NOW()
-WHERE targetType = @target_type
-  AND targetValue <=> @target_value;
-```
-
-`limit` is the allowed request count. `throttlingInSec` is the window duration in seconds. Use positive integers. Keep `sort`; `daily` and `weekly` are optional. Change the route key to configure hotel search or another API.
-
-Database settings, including an empty result, are cached in each API process for 300 seconds by default. Requests arriving together share one lookup when the cache is empty or expires. Changes take effect after the cache expires, or after restarting the API. Existing Redis counts keep running until their windows expire.
-
-Relevant environment variables:
-
-```env
-ACCESS_CONFIGURATION_CACHE_TTL_SEC=300
-REDIS_HOST=redis
-REDIS_PORT=6379
-```
-
-`REDIS_HOST=redis` is the Docker Compose service name. Use your Redis host outside Docker. To change the cache duration in Compose, add `ACCESS_CONFIGURATION_CACHE_TTL_SEC` under `web.environment` in `docker-compose.yml` and recreate the web service.
-
-### Database constraint: one DEFAULT row
-
-The model uses a unique index on the columns `targetType` and `targetValue`. The database also needs a separate constraint for a single `DEFAULT` row, because its target value is `NULL`.
-
-If `access_configurations_default_unique` is already present, skip the migration. Otherwise, run [the migration](migrations/20261111-single-default-rate-limit.sql) once after the table exists and before adding configuration data or enabling admin-panel writes. Pause admin-panel writes until it finishes. The admin panel continues to own normal configuration writes.
-
-The script copies all current `DEFAULT` rows to `access_configuration_default_backup_20261111`, keeps the lowest-ID row, sets its target value to `NULL`, and removes the other defaults. User and IP rows are left as they are. The new unique index prevents another `DEFAULT` row, even with a non-null target value. Restart the API processes afterward to clear old cached settings.
-
-The separate constraint is managed by the migration, including for new databases. It needs MySQL 8.0.13 or newer; see the [MySQL index reference](https://dev.mysql.com/doc/refman/8.0/en/create-index.html).
-
-### Add another route
-
-Place the middleware before the handler, as in [the search router](src/web/router/v1/search.ts):
-
-```ts
-import { newRateLimit } from "../../middleware/rate-limit";
-
-router.get("/offers", newRateLimit(), (_req, res) => {
-    res.json({ message: "Offers endpoint" });
-});
-```
-
-In the search router, this creates `GET:/api/v1/search/offers`. Add that key to a database policy to give it a different limit. For authenticated routes, put authentication before the rate limiter.
-
-Code defaults are in `defaultRateLimit` in [rate-limit.ts](src/web/middleware/rate-limit.ts). They use the same route keys and window fields as the database JSON. Database changes do not need a rebuild. Code changes do; run `docker compose up --build -d`.
-
-### Check the response
-
-Add `-i` to either search curl above to see the headers:
+Add `-i` to the curl examples above to see the headers.
 
 | Header | Meaning |
 | --- | --- |
 | `Rate-Limit-Remaining` | Requests left in the reported window |
-| `Rate-Limit-Reset` | Seconds until that window resets |
-| `Rate-Limit-Window` | `sort`, `daily` or `weekly` |
-| `Retry-After` | Seconds to wait after an HTTP 429 response |
+| `Rate-Limit-Reset` | Seconds until that window resets; this is a duration, not a timestamp |
+| `Rate-Limit-Window` | The reported window: `sort`, `daily` or `weekly` |
+| `Retry-After` | Seconds to wait before trying again; included on HTTP 429 |
 
-With the default limits, send three valid flight searches within five seconds. The first two pass and the third returns HTTP 429, provided the client has no earlier requests in the active windows. All configured windows count each request, including requests blocked by the limiter.
+The headers describe one window at a time. Other windows still apply even if the reported window has requests remaining.
 
-## Tests
+### When a search is blocked
 
-```bash
-npx jest src/web/middleware/test/rate-limit.test.ts --runInBand
+Example response:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Rate-Limit-Remaining: 0
+Rate-Limit-Reset: 4
+Rate-Limit-Window: sort
+Retry-After: 4
+Content-Type: application/json
 ```
+
+```json
+{
+  "code": "E_TOO_MANY_REQUEST",
+  "message": "You are exceeded the rate limit. Please try after a moment.",
+  "response": null,
+  "errors": ["You are exceeded the rate limit. Please try after a moment."]
+}
+```
+
+On the frontend:
+
+1. Check for HTTP 429.
+2. Read `Retry-After` and show a message such as “Too many searches. Try again in 4 seconds.”
+3. Disable the affected search button for that duration. For a daily or weekly limit, show the longer wait clearly.
+4. Allow the user to search again when the countdown finishes. Avoid automatic retry loops; blocked requests also count toward the quotas.
+
+Disable duplicate submissions while a search is running. A countdown is a UI hint; the next API response determines whether another request is allowed.
+
+### Frontend example
+
+This example returns the wait time to the UI when flight search is limited. Use the same response handling for hotel search.
+
+```js
+async function searchFlights(params) {
+  const query = new URLSearchParams(params);
+  const response = await fetch(`/api/v1/search/flight?${query}`);
+  const body = await response.json();
+
+  if (response.status === 429) {
+    const seconds = response.headers.get("Retry-After")
+      ?? response.headers.get("Rate-Limit-Reset")
+      ?? "5";
+
+    return {
+      status: "limited",
+      retryAfter: Math.max(1, Number(seconds)),
+      window: response.headers.get("Rate-Limit-Window"),
+      message: body.message,
+    };
+  }
+
+  if (response.status === 400) {
+    return { status: "invalid", message: body.message, errors: body.errors };
+  }
+
+  if (!response.ok) {
+    throw new Error(body.message || "Search failed");
+  }
+
+  return { status: "success", data: body.response };
+}
+```
+
+When `status` is `limited`, use `retryAfter` for the countdown. When it is `invalid`, show `errors` so the user can correct the search.
+
+The example uses a same-origin API path. If the frontend calls the API from a different origin, configure the API or proxy to allow that origin and expose `Rate-Limit-Remaining`, `Rate-Limit-Reset`, `Rate-Limit-Window` and `Retry-After` to browser JavaScript.

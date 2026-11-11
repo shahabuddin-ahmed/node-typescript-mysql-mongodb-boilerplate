@@ -55,7 +55,9 @@ async function getAccessConfigurations(): Promise<AccessConfiguration[]> {
     }
 
     if (!accessConfigurationsLoad) {
-        accessConfigurationsLoad = AccessConfiguration.findAll();
+        accessConfigurationsLoad = AccessConfiguration.findAll({
+            where: { isActive: true },
+        });
     }
 
     const configurationLoad = accessConfigurationsLoad;
