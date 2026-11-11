@@ -17,6 +17,24 @@ After adding rate limit some user used curl a certain interval called our api as
 
 4th phase:
 
-Rate limit will be dynamic and use fallback in codebase if rate limit is not config in DB. And the config will be different types like we can set rate limit specific ip wise or user wise or a default limit. In table will 5 properties targetValue, targetType, rateLimits createdBy and updatedBy. The targetType will enum and values will be USER, IP AND DEFAULT. targetValue will be null able value that will be store user id or user ip address. The rateLimits value will be json type and sort, daily and weekly format and sample data will be like default codebase limit.
+Rate limit will be dynamic, configurable in the database and use fallback in codebase if rate limit is not config in access_configurations table. And the config will be different types like we can set rate limit specific ip wise or user wise or a default limit. In table B2C gateway reads only rows where isActive is true. Each row includes targetType, targetValue, rateLimits, isActive, createdBy, and updatedBy. The targetType will enum and values will be USER, IP AND DEFAULT. targetValue will be null able value that will be store user id or user ip address and it is NULL for a DEFAULT row. The rateLimits value will be json array type and sort, daily and weekly format and each object maps an HTTP method and route, or the key default, to a policy. Here is the sample example for rateLimits value:
+
+[
+  {
+    "default": {
+      "sort": { "limit": 120, "throttlingInSec": 60 }
+    },
+    "GET:/api/v1/search/hotel": {
+      "sort": { "limit": 4, "throttlingInSec": 10 },
+      "daily": { "limit": 50, "throttlingInSec": 86400 },
+      "weekly": { "limit": 200, "throttlingInSec": 604800 }
+    },
+    "GET:/api/v1/search/flight": {
+      "sort": { "limit": 3, "throttlingInSec": 10 },
+      "daily": { "limit": 50, "throttlingInSec": 86400 },
+      "weekly": { "limit": 200, "throttlingInSec": 604800 }
+    }
+  }
+]
 
 The final implementation will be the combine all 4 phases. And deliverables will be in TypeScript including project folder paths reserved.
