@@ -1,12 +1,16 @@
 import { Request, Response } from "express";
 import { Controller } from "../controller";
+import { flightSearchSchema, hotelSearchSchema } from "../../validation/search";
 
 export interface SearchControllerInterface {
     flightSearch(req: Request, res: Response): any;
     hotelSearch(req: Request, res: Response): any;
 }
 
-export class SearchController extends Controller implements SearchControllerInterface {
+export class SearchController
+    extends Controller
+    implements SearchControllerInterface
+{
     constructor() {
         super();
         this.flightSearch = this.flightSearch.bind(this);
@@ -14,21 +18,19 @@ export class SearchController extends Controller implements SearchControllerInte
     }
 
     async flightSearch(req: Request, res: Response): Promise<any> {
-        const data = {
-            searchId: "345325325235",
-            origin: "DAC",
-            destination: "JFK"
-        };
-        return this.sendResponse({ response: data }, 201, res);
+        const { value } = await this.validateRequest(
+            flightSearchSchema,
+            req.query,
+        );
+        return this.sendResponse({ response: value }, 200, res);
     }
 
     async hotelSearch(req: Request, res: Response): Promise<any> {
-        const data = {
-            searchId: "345325325235",
-            checkIn: "2026-12-25",
-            checkOut: "2026-12-28"
-        };
-        return this.sendResponse({ response: data }, 201, res);
+        const { value } = await this.validateRequest(
+            hotelSearchSchema,
+            req.query,
+        );
+        return this.sendResponse({ response: value }, 200, res);
     }
 }
 
