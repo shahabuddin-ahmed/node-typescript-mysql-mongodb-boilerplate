@@ -41,6 +41,7 @@ curl --get 'http://localhost:3000/api/v1/search/flight' \
 - Adults, children and infants together cannot exceed 7. No `pax` field is needed.
 - Cabin class: `economy`, `premiumEconomy`, `business` or `first`. Default is `economy`.
 - Children and infants default to 0.
+- Return dates must be on or after departure. A same-day return is allowed.
 
 ## Hotel search
 
@@ -59,10 +60,11 @@ curl --get 'http://localhost:3000/api/v1/search/hotel' \
 - Destination, check-in, check-out and adult count are required.
 - Rooms: 1–6. Default is 1.
 - Total adults: 1 to `rooms × 4`. Total children: 0 to `rooms × 2`.
-- Child ages must be integers from 0 to 17. Include infants in the child count.
-- Children default to 0 and child ages default to an empty array.
+- Check-out must be after check-in.
+- Supply one age (0–17) per child. Include infants in the child count.
+- Children default to 0. With no children, child ages default to an empty array.
 
-Both searches use Joi validation. Use ISO dates such as `2026-12-25`. Valid requests return HTTP 200 with the validated parameters in `response`. Invalid requests return HTTP 400 with validation errors.
+Both searches use Joi validation. Use ISO dates such as `2026-12-25`. Valid requests return HTTP 200 with the validated parameters in `response`. Invalid requests, including extra query fields, return HTTP 400 with validation errors.
 
 Validation rules are in [search.ts](src/web/validation/search.ts).
 
@@ -92,11 +94,25 @@ Other routes using the middleware default to 120 requests per 60 seconds. Each w
 
 Within a database row, the route entry is checked first, then its `default` entry. The selected policy is used as a whole; windows from different policies are not combined.
 
+The admin panel is responsible for validating policies before saving them. The gateway reads saved policies directly without validating their contents again.
+
+An empty table, no matching policy or a failed MySQL lookup uses the built-in limits. MySQL lookup errors are logged. After a failed lookup, the fallback is cached for the normal cache duration, then MySQL is checked again. Redis errors still stop the request and use the global error handler.
+
 Counts are separate for each HTTP method and route. Logged-in users are counted by user ID. Other requests are counted by IP address and User-Agent. The search routes are public; a `USER` rule needs authentication middleware to set `req.user.id` first.
 
 ### Set limits in MySQL
 
 Use the `access_configurations` table defined in [access-configuration.ts](src/model/access-configuration.ts).
+
+Local sample data is in [seeds/access-configurations.sql](seeds/access-configurations.sql). Run it against your application database:
+
+```bash
+mysql -u YOUR_USER -p YOUR_DATABASE < seeds/access-configurations.sql
+```
+
+It adds a shared default, localhost IP rules (`127.0.0.1` and `::ffff:127.0.0.1`), and a `dummy-admin` user rule. Existing target rows are kept. Localhost allows 2 searches per 10 seconds on each search endpoint, so the third request within that window returns 429. The user rule applies only when authentication sets `req.user.id` to `dummy-admin`.
+
+Restart the API or wait for the 300-second settings cache to expire after adding the samples.
 
 | `targetType` | `targetValue` | Use case |
 | --- | --- | --- |
@@ -143,7 +159,7 @@ WHERE targetType = @target_type
 
 `limit` is the allowed request count. `throttlingInSec` is the window duration in seconds. Use positive integers. Keep `sort`; `daily` and `weekly` are optional. Change the route key to configure hotel search or another API.
 
-Database settings are cached in each API process for 300 seconds by default. Changes take effect after the cache expires, or after restarting the API. Existing Redis counts keep running until their windows expire.
+Database settings, including an empty result, are cached in each API process for 300 seconds by default. Requests arriving together share one lookup when the cache is empty or expires. Changes take effect after the cache expires, or after restarting the API. Existing Redis counts keep running until their windows expire.
 
 Relevant environment variables:
 
@@ -154,6 +170,16 @@ REDIS_PORT=6379
 ```
 
 `REDIS_HOST=redis` is the Docker Compose service name. Use your Redis host outside Docker. To change the cache duration in Compose, add `ACCESS_CONFIGURATION_CACHE_TTL_SEC` under `web.environment` in `docker-compose.yml` and recreate the web service.
+
+### Database constraint: one DEFAULT row
+
+The model uses a unique index on the columns `targetType` and `targetValue`. The database also needs a separate constraint for a single `DEFAULT` row, because its target value is `NULL`.
+
+If `access_configurations_default_unique` is already present, skip the migration. Otherwise, run [the migration](migrations/20261111-single-default-rate-limit.sql) once after the table exists and before adding configuration data or enabling admin-panel writes. Pause admin-panel writes until it finishes. The admin panel continues to own normal configuration writes.
+
+The script copies all current `DEFAULT` rows to `access_configuration_default_backup_20261111`, keeps the lowest-ID row, sets its target value to `NULL`, and removes the other defaults. User and IP rows are left as they are. The new unique index prevents another `DEFAULT` row, even with a non-null target value. Restart the API processes afterward to clear old cached settings.
+
+The separate constraint is managed by the migration, including for new databases. It needs MySQL 8.0.13 or newer; see the [MySQL index reference](https://dev.mysql.com/doc/refman/8.0/en/create-index.html).
 
 ### Add another route
 
@@ -183,3 +209,9 @@ Add `-i` to either search curl above to see the headers:
 | `Retry-After` | Seconds to wait after an HTTP 429 response |
 
 With the default limits, send three valid flight searches within five seconds. The first two pass and the third returns HTTP 429, provided the client has no earlier requests in the active windows. All configured windows count each request, including requests blocked by the limiter.
+
+## Tests
+
+```bash
+npx jest src/web/middleware/test/rate-limit.test.ts --runInBand
+```

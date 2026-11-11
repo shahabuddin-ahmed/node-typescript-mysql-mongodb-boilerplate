@@ -1,7 +1,7 @@
 import Joi from "joi";
 import { CabinClass, TripType } from "../../constant/search";
 
-const searchDate = Joi.string().isoDate().strict();
+const searchDate = Joi.date().iso().raw();
 const airportCode = Joi.string()
     .trim()
     .uppercase()
@@ -16,7 +16,7 @@ export const flightSearchSchema = Joi.object({
         .required(),
     returnDate: Joi.when("tripType", {
         is: TripType.ROUND_TRIP,
-        then: searchDate.required(),
+        then: searchDate.min(Joi.ref("departureDate")).required(),
         otherwise: Joi.forbidden(),
     }),
     adults: Joi.number().integer().min(1).max(7).required(),
@@ -34,12 +34,13 @@ export const flightSearchSchema = Joi.object({
         Joi.expression("{.adults + .children + .infants}"),
         Joi.number().max(7),
     )
+    .unknown(false)
     .required();
 
 export const hotelSearchSchema = Joi.object({
     destination: Joi.string().trim().min(2).max(100).required(),
     checkIn: searchDate.required(),
-    checkOut: searchDate.required(),
+    checkOut: searchDate.greater(Joi.ref("checkIn")).required(),
     rooms: Joi.number().integer().min(1).max(6).default(1),
     adults: Joi.number()
         .integer()
@@ -53,5 +54,12 @@ export const hotelSearchSchema = Joi.object({
         .default(0),
     childAges: Joi.array()
         .items(Joi.number().integer().min(0).max(17))
-        .default([]),
-}).required();
+        .length(Joi.ref("children"))
+        .when("children", {
+            is: 0,
+            then: Joi.array().default([]),
+            otherwise: Joi.array().required(),
+        }),
+})
+    .unknown(false)
+    .required();

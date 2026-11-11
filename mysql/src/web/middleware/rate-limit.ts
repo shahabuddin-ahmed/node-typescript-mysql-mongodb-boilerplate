@@ -10,7 +10,6 @@ import AccessConfiguration, {
     RateLimitPolicyConfig,
     AccessConfigurationRateLimitMap,
     AccessConfigurationTargetType,
-    RateLimitWindowConfig,
 } from "../../model/access-configuration";
 
 type RedisClientType = Awaited<ReturnType<typeof newRedisClient>>;
@@ -44,6 +43,42 @@ const accessConfigurationCache = new NodeCache({
 });
 
 const ACCESS_CONFIGURATION_CACHE_KEY = "all_access_configurations";
+let accessConfigurationsLoad: Promise<AccessConfiguration[]> | null = null;
+
+async function getAccessConfigurations(): Promise<AccessConfiguration[]> {
+    const cachedAccessConfiguration = accessConfigurationCache.get<
+        AccessConfiguration[]
+    >(ACCESS_CONFIGURATION_CACHE_KEY);
+
+    if (cachedAccessConfiguration) {
+        return cachedAccessConfiguration;
+    }
+
+    if (!accessConfigurationsLoad) {
+        accessConfigurationsLoad = AccessConfiguration.findAll();
+    }
+
+    const configurationLoad = accessConfigurationsLoad;
+    let configurations: AccessConfiguration[] = [];
+
+    try {
+        configurations = await configurationLoad;
+    } catch (error) {
+        console.error(
+            "Failed to load rate limit access configurations from database",
+            error,
+        );
+    }
+
+    if (accessConfigurationsLoad === configurationLoad) {
+        accessConfigurationCache.set(
+            ACCESS_CONFIGURATION_CACHE_KEY,
+            configurations,
+        );
+        accessConfigurationsLoad = null;
+    }
+    return configurations;
+}
 
 function getUserAgent(req: Request): { userAgentHash: string } {
     const userAgent = req.headers["user-agent"] || "unknown";
@@ -95,21 +130,7 @@ async function getConfiguredRateLimit(
         },
     ];
 
-    let accessConfigurations = accessConfigurationCache.get<
-        AccessConfiguration[]
-    >(ACCESS_CONFIGURATION_CACHE_KEY);
-
-    if (!accessConfigurations) {
-        accessConfigurations = await AccessConfiguration.findAll();
-        if (!accessConfigurations.length) {
-            return null;
-        }
-
-        accessConfigurationCache.set(
-            ACCESS_CONFIGURATION_CACHE_KEY,
-            accessConfigurations,
-        );
-    }
+    const accessConfigurations = await getAccessConfigurations();
 
     for (const targetValue of targetValues) {
         const accessConfiguration = accessConfigurations.find(
@@ -136,7 +157,7 @@ async function getConfiguredRateLimit(
 }
 
 async function verifyRateLimit(
-    rateLimit: RateLimitPolicyConfig,
+    rateLimitPolicy: RateLimitPolicyConfig,
     redisClient: RedisClientType,
     endpoint: string,
     rateLimitKey: string,
@@ -148,12 +169,11 @@ async function verifyRateLimit(
     let remainingWindow: VerifyRateLimit | null = null;
 
     await Promise.all(
-        Object.keys(rateLimit).map(async (rateLimitName: string) => {
+        Object.keys(rateLimitPolicy).map(async (rateLimitName: string) => {
             const key = `${rateLimitKey}:${endpoint}:${rateLimitName}`;
 
             const { limit, throttlingInSec } =
-                rateLimit[rateLimitName as keyof RateLimitPolicyConfig] ||
-                ({ limit: 0, throttlingInSec: 0 } as RateLimitWindowConfig);
+                rateLimitPolicy[rateLimitName as keyof RateLimitPolicyConfig]!;
 
             const [usedCount, , resetInSec] = (await redisClient
                 .multi()
@@ -177,11 +197,11 @@ async function verifyRateLimit(
                         : exceededWindow;
             } else {
                 remainingWindow =
-                    !remainingWindow || remainingLimit < remainingWindow.remainingLimit
+                    !remainingWindow ||
+                    remainingLimit < remainingWindow.remainingLimit
                         ? data
                         : remainingWindow;
             }
-
         }),
     );
 
@@ -201,9 +221,12 @@ function setRateLimitHeaders(
     res.set("Rate-Limit-Remaining", rateLimitWindow.remainingLimit.toString());
     res.set("Rate-Limit-Reset", rateLimitWindow.resetInSec.toString());
     res.set("Rate-Limit-Window", rateLimitWindow.windowName);
-    
+
     if (rateLimitExceeded) {
-        res.set("Retry-After", Math.max(1, rateLimitWindow.resetInSec).toString());
+        res.set(
+            "Retry-After",
+            Math.max(1, rateLimitWindow.resetInSec).toString(),
+        );
     }
 }
 
@@ -234,12 +257,13 @@ export const newRateLimit =
                 defaultRateLimit[endpoint] ||
                 defaultRateLimit.default;
 
-            const { rateLimitExceeded, rateLimitWindow } = await verifyRateLimit(
-                rateLimit,
-                redisClient,
-                endpoint,
-                rateLimitKey,
-            );
+            const { rateLimitExceeded, rateLimitWindow } =
+                await verifyRateLimit(
+                    rateLimit,
+                    redisClient,
+                    endpoint,
+                    rateLimitKey,
+                );
             setRateLimitHeaders(res, rateLimitWindow, rateLimitExceeded);
 
             if (rateLimitExceeded) {
