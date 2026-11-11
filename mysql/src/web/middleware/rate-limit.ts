@@ -1,22 +1,18 @@
 import { NextFunction, Request, Response } from "express";
+import NodeCache from "node-cache";
 import { ERROR_CODES } from "../../constant/error";
 import { getIpAddress } from "../../utils/utility";
 import { createHash } from "crypto";
 import { newRedisClient } from "../../infra/redis";
 import { TooManyRequestException } from "../exception/too-many-request-exception";
+import AccessConfiguration, {
+    RateLimitWindowConfig,
+    RateLimitPolicyConfig,
+    AccessConfigurationRateLimitMap,
+    AccessConfigurationTargetType,
+} from "../../model/access-configuration";
 
 type RedisClientType = Awaited<ReturnType<typeof newRedisClient>>;
-
-interface RateLimitConfig {
-    limit: number;
-    throttlingInSec: number;
-}
-
-interface RateLimit {
-    sort: RateLimitConfig;
-    daily?: RateLimitConfig;
-    weekly?: RateLimitConfig;
-}
 
 interface VerifyRateLimit {
     windowName: string;
@@ -24,7 +20,7 @@ interface VerifyRateLimit {
     resetInSec: number;
 }
 
-const defaultRateLimit: Record<string, RateLimit> = {
+const defaultRateLimit: AccessConfigurationRateLimitMap = {
     "GET:/api/v1/search/flight": {
         sort: { limit: 2, throttlingInSec: 5 },
         daily: { limit: 200, throttlingInSec: 86400 },
@@ -39,6 +35,13 @@ const defaultRateLimit: Record<string, RateLimit> = {
         sort: { limit: 120, throttlingInSec: 60 },
     },
 };
+
+const accessConfigurationCache = new NodeCache({
+    stdTTL: 1800,
+    checkperiod: 90,
+}); // Cache access configurations for 30 minutes
+
+const ACCESS_CONFIGURATION_CACHE_KEY = "all_access_configurations";
 
 function getUserAgent(req: Request): { userAgentHash: string } {
     const userAgent = req.headers["user-agent"] || "unknown";
@@ -63,8 +66,59 @@ function getRateLimitKey(
     return userId ? `user:${userId}` : `ip:${ipAddress}:${userAgentHash}`;
 }
 
+async function getAccessConfiguration(
+    userId: string | null,
+    ipAddress: string,
+): Promise<AccessConfiguration | null> {
+    const targetValues = [
+        userId
+            ? {
+                  targetType: AccessConfigurationTargetType.USER,
+                  targetValue: userId,
+              }
+            : {
+                  targetType: AccessConfigurationTargetType.IP,
+                  targetValue: ipAddress,
+              },
+        {
+            targetType: AccessConfigurationTargetType.DEFAULT,
+            targetValue: null,
+        },
+    ];
+
+    let accessConfigurations = accessConfigurationCache.get<
+        AccessConfiguration[]
+    >(ACCESS_CONFIGURATION_CACHE_KEY);
+
+    if (!accessConfigurations) {
+        accessConfigurations = await AccessConfiguration.findAll();
+        if (!accessConfigurations.length) {
+            return null;
+        }
+
+        accessConfigurationCache.set(
+            ACCESS_CONFIGURATION_CACHE_KEY,
+            accessConfigurations,
+        );
+    }
+
+    for (const targetValue of targetValues) {
+        const accessConfiguration = accessConfigurations.find(
+            (configuration) =>
+                configuration.targetType === targetValue.targetType &&
+                configuration.targetValue === targetValue.targetValue,
+        );
+
+        if (accessConfiguration) {
+            return accessConfiguration;
+        }
+    }
+
+    return null;
+}
+
 async function verifyRatelimit(
-    rateLimit: RateLimit,
+    rateLimit: RateLimitPolicyConfig,
     redisClient: RedisClientType,
     endpoint: string,
     rateLimitKey: string,
@@ -80,8 +134,8 @@ async function verifyRatelimit(
             const key = `${rateLimitKey}:${endpoint}:${rateLimitName}`;
 
             const { limit, throttlingInSec } =
-                rateLimit[rateLimitName as keyof RateLimit] ||
-                ({ limit: 0, throttlingInSec: 0 } as RateLimitConfig);
+                rateLimit[rateLimitName as keyof RateLimitPolicyConfig] ||
+                ({ limit: 0, throttlingInSec: 0 } as RateLimitWindowConfig);
 
             const [usedCount, , resetInSec] = (await redisClient
                 .multi()
@@ -111,6 +165,28 @@ async function verifyRatelimit(
     return { exceededRateLimits, remainingRateLimits };
 }
 
+function setRateLimitHeaders(
+    res: Response,
+    exceededRateLimit: VerifyRateLimit | null,
+    remainingRateLimit: VerifyRateLimit,
+): void {
+    if (exceededRateLimit) {
+        res.set(
+            "Rate-Limit-Remaining",
+            remainingRateLimit.remainingLimit.toString(),
+        );
+        res.set("Rate-Limit-Reset", exceededRateLimit.resetInSec.toString());
+        res.set("Rate-Limit-Window", exceededRateLimit.windowName);
+    } else {
+        res.set(
+            "Rate-Limit-Remaining",
+            remainingRateLimit.remainingLimit.toString(),
+        );
+        res.set("Rate-Limit-Reset", remainingRateLimit.resetInSec.toString());
+        res.set("Rate-Limit-Window", remainingRateLimit.windowName);
+    }
+}
+
 export const newRateLimit =
     () =>
     async (req: Request, res: Response, next: NextFunction): Promise<any> => {
@@ -127,8 +203,17 @@ export const newRateLimit =
 
             const redisClient = await newRedisClient();
 
+            const accessConfiguration = await getAccessConfiguration(
+                userId,
+                ipAddress,
+            );
+
             const rateLimit =
-                defaultRateLimit[endpoint] || defaultRateLimit.default;
+                accessConfiguration?.rateLimits.find(
+                    (rateLimit) => rateLimit[endpoint],
+                )?.[endpoint] ||
+                defaultRateLimit[endpoint] ||
+                defaultRateLimit.default;
 
             const { exceededRateLimits, remainingRateLimits } =
                 await verifyRatelimit(
@@ -138,36 +223,15 @@ export const newRateLimit =
                     rateLimitKey,
                 );
 
+            setRateLimitHeaders(
+                res,
+                exceededRateLimits[0],
+                remainingRateLimits[0],
+            );
+
             if (exceededRateLimits.length) {
-                res.set(
-                    "Rate-Limit-Remaining",
-                    String(exceededRateLimits[0].remainingLimit),
-                );
-                res.set(
-                    "Rate-Limit-Reset",
-                    String(exceededRateLimits[0].resetInSec),
-                );
-                res.set(
-                    "Rate-Limit-Window",
-                    String(exceededRateLimits[0].windowName),
-                );
                 throw new TooManyRequestException(
                     ERROR_CODES.E_TOO_MANY_REQUEST,
-                );
-            }
-
-            if (remainingRateLimits.length) {
-                res.set(
-                    "Rate-Limit-Remaining",
-                    String(remainingRateLimits[0].remainingLimit),
-                );
-                res.set(
-                    "Rate-Limit-Reset",
-                    String(remainingRateLimits[0].resetInSec),
-                );
-                res.set(
-                    "Rate-Limit-Window",
-                    String(remainingRateLimits[0].windowName),
                 );
             }
 

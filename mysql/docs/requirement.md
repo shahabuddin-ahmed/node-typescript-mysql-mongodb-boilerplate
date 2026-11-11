@@ -15,4 +15,8 @@ If we add IP wise rate limit then another users may have chances to gets block a
 
 After adding rate limit some user used curl a certain interval called our api as we initially rate limit per minutes wise. so this type of user block, we need to add window wise block like sort, daily, weekly etc. e.g. for sort 2 times for 5 sec request flight search, and daily 200 times and weekly 1000. times. Also add a default fallback rate limit sort 120 times for 60 sec request only. During rate limit check combine HTTP method and route path so that same route but different API can apply rate limit separately.
 
-The final implementation will be the combine all 3 phases. And deliverables will be in TypeScript including project folder paths reserved.
+4th phase:
+
+Rate limit will be dynamic and use fallback in codebase if rate limit is not config in DB. And the config will be different types like we can set rate limit specific ip wise or user wise or a default limit. In table will 5 properties targetValue, targetType, rateLimits createdBy and updatedBy. The targetType will enum and values will be USER, IP AND DEFAULT. targetValue will be null able value that will be store user id or user ip address. The rateLimits value will be json type and sort, daily and weekly format and sample data will be like default codebase limit.
+
+The final implementation will be the combine all 4 phases. And deliverables will be in TypeScript including project folder paths reserved.
