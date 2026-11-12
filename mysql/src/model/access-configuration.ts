@@ -94,11 +94,13 @@ AccessConfiguration.init(
         underscored: false,
         sequelize: newSequelize(),
         modelName: "AccessConfiguration",
-        indexes: [{
-            name: "access_configurations_target_unique",
-            unique: true,
-            fields: ["targetType", "targetValue"],
-        }],
+        indexes: [
+            {
+                name: "access_configurations_target_unique",
+                unique: true,
+                fields: ["targetType", "targetValue"],
+            },
+        ],
     },
 );
 
