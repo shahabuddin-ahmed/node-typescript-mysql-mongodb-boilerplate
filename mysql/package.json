@@ -22,7 +22,7 @@
         "serve-debug": "nodemon --inspect dist/server.js",
         "watch-debug": "concurrently -k -p \"[{name}]\" -n \"Sass,TypeScript,Node\" -c \"yellow.bold,cyan.bold,green.bold\" \"yarn watch-sass\" \"yarn watch-ts\" \"yarn serve-debug\""
     },
-    "author": "Shahabuddin Ahmed",
+    "author": "MySQL + Express Boilerplate",
     "license": "MIT",
     "dependencies": {
         "body-parser": "^1.20.3",

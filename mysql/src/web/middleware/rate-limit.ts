@@ -37,7 +37,7 @@ const defaultRateLimit: AccessConfigurationRateLimitMap = {
 };
 
 const accessConfigurationCache = new NodeCache({
-    stdTTL: config.ACCESS_CONFIGURATION_CACHE_TTL_SEC,
+    stdTTL: config.ACCESS_CONFIGURATION_CACHE_TTL,
     checkperiod: 0,
     useClones: false,
 });
